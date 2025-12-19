@@ -3,7 +3,9 @@
 ## Build/Test Commands
 - **Development**: `air` (live reload with templ/sqlc/tailwind generation)
 - **Build**: `go build -o ./tmp/main ./cmd/server`
-- **Test all**: `go test -v ./...`
+- **Lint**: `golangci-lint run` (Go linting with all enabled linters)
+- **SQL Lint**: `go tool sqlc vet` (validates SQL queries)
+- **Test all**: `go test -v ./...` (or `go test -race ./...` for race detection)
 - **E2E tests**: `go test -v ./... -tags=e2e`
 - **Single test**: `go test -v ./path/to/package -run TestName`
 - **Generate**: `go tool templ generate -path ./internal/components && go tool sqlc generate`
