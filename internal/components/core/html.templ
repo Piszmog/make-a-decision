@@ -16,19 +16,16 @@ templ head(title string) {
 		<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 		<meta name="description" content="Hello world"/>
 		<title>{ title }</title>
-		<link rel="preconnect" href="https://fonts.googleapis.com"/>
-		<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
-		<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"/>
 		<script src="/assets/js/htmx@v2.0.7.min.js"></script>
-		<script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.9.2/dist/confetti.browser.min.js"></script>
+		<script src="/assets/js/canvas-confetti@v1.9.2.min.js"></script>
 		<link href={ "/assets/css/output@" + version.Value + ".css" } rel="stylesheet"/>
 		<script>
-			document.addEventListener('htmx:afterRequest', function(event) {
+			document.addEventListener("htmx:afterRequest", function (event) {
 				const target = event.detail.target;
-				
+
 				// Check for error triggers
 				if (event.detail.successful === false) {
-					const errorTrigger = event.detail.xhr.getResponseHeader('HX-Trigger');
+					const errorTrigger = event.detail.xhr.getResponseHeader("HX-Trigger");
 					if (errorTrigger) {
 						try {
 							const triggerData = JSON.parse(errorTrigger);
@@ -36,14 +33,15 @@ templ head(title string) {
 								showErrorToast(triggerData.error);
 							}
 						} catch (e) {
-							showErrorToast('An error occurred');
+							showErrorToast("An error occurred");
 						}
 					}
 				}
-				
+
 				// Check for success triggers
 				if (event.detail.successful === true) {
-					const successTrigger = event.detail.xhr.getResponseHeader('HX-Trigger');
+					const successTrigger =
+						event.detail.xhr.getResponseHeader("HX-Trigger");
 					if (successTrigger) {
 						try {
 							const triggerData = JSON.parse(successTrigger);
@@ -56,12 +54,13 @@ templ head(title string) {
 					}
 				}
 			});
-			
+
 			function showErrorToast(message) {
 				removeExistingToasts();
-				const toast = document.createElement('div');
-				toast.id = 'error-toast';
-				toast.className = 'fixed top-4 right-4 bg-red-500 text-white px-4 py-2 rounded-lg shadow-lg z-50 animate-fade-in';
+				const toast = document.createElement("div");
+				toast.id = "error-toast";
+				toast.className =
+					"fixed top-4 right-4 bg-red-500 text-white px-4 py-2 rounded-lg shadow-lg z-50 animate-fade-in";
 				toast.innerHTML = `
 					<div class="flex items-center gap-2">
 						<span>⚠️</span>
@@ -69,19 +68,20 @@ templ head(title string) {
 					</div>
 				`;
 				document.body.appendChild(toast);
-				
+
 				setTimeout(() => {
 					if (toast.parentNode) {
 						toast.remove();
 					}
 				}, 3000);
 			}
-			
+
 			function showSuccessToast(message) {
 				removeExistingToasts();
-				const toast = document.createElement('div');
-				toast.id = 'success-toast';
-				toast.className = 'fixed top-4 right-4 bg-green-500 text-white px-4 py-2 rounded-lg shadow-lg z-50 animate-fade-in';
+				const toast = document.createElement("div");
+				toast.id = "success-toast";
+				toast.className =
+					"fixed top-4 right-4 bg-green-500 text-white px-4 py-2 rounded-lg shadow-lg z-50 animate-fade-in";
 				toast.innerHTML = `
 					<div class="flex items-center gap-2">
 						<span>✅</span>
@@ -89,63 +89,63 @@ templ head(title string) {
 					</div>
 				`;
 				document.body.appendChild(toast);
-				
+
 				setTimeout(() => {
 					if (toast.parentNode) {
 						toast.remove();
 					}
 				}, 2000);
 			}
-			
-		function removeExistingToasts() {
-			const existingError = document.getElementById('error-toast');
-			if (existingError) existingError.remove();
-			const existingSuccess = document.getElementById('success-toast');
-			if (existingSuccess) existingSuccess.remove();
-		}
-		
-		function celebrateDecision() {
-			confetti({
-				particleCount: 50,
-				spread: 60,
-				origin: { y: 0.55 },
-				colors: ['#3b82f6', '#6366f1', '#8b5cf6', '#a855f7'],
-				ticks: 150
-			});
-		}
-		
-		function validateDuration(input) {
+
+			function removeExistingToasts() {
+				const existingError = document.getElementById("error-toast");
+				if (existingError) existingError.remove();
+				const existingSuccess = document.getElementById("success-toast");
+				if (existingSuccess) existingSuccess.remove();
+			}
+
+			function celebrateDecision() {
+				confetti({
+					particleCount: 50,
+					spread: 60,
+					origin: { y: 0.55 },
+					colors: ["#3b82f6", "#6366f1", "#8b5cf6", "#a855f7"],
+					ticks: 150,
+				});
+			}
+
+			function validateDuration(input) {
 				const value = parseInt(input.value);
-				const max = parseInt(input.getAttribute('max'));
-				const min = parseInt(input.getAttribute('min'));
-				
+				const max = parseInt(input.getAttribute("max"));
+				const min = parseInt(input.getAttribute("min"));
+
 				if (isNaN(value)) {
-					input.setCustomValidity('Please enter a valid number');
+					input.setCustomValidity("Please enter a valid number");
 					return false;
 				}
-				
+
 				if (value < min) {
 					input.setCustomValidity(`Duration must be at least ${min} minutes`);
 					return false;
 				}
-				
+
 				if (value > max) {
 					input.setCustomValidity(`Duration cannot exceed ${max} minutes`);
 					return false;
 				}
-				
-				input.setCustomValidity('');
+
+				input.setCustomValidity("");
 				return true;
 			}
 		</script>
 	</head>
 }
 
- templ body(content templ.Component) {
+templ body(content templ.Component) {
 	<body class="flex flex-col min-h-screen bg-gradient-to-br from-blue-900 via-indigo-900 to-purple-900">
 		<div id="toast-container"></div>
 		<main class="grow">
 			@content
 		</main>
 	</body>
- }
+}
