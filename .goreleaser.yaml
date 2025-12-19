@@ -1,0 +1,50 @@
+version: 2
+
+dist: goreleaser-dist
+
+before:
+  hooks:
+    - go mod download
+    - go tool sqlc generate
+    - go tool templ generate -path ./internal/components
+    - go tool go-tw -i ./styles/input.css -o ./internal/dist/assets/css/output@{{.Version}}.css --minify
+
+builds:
+  - main: ./cmd/server
+    env:
+      - CGO_ENABLED=0
+    ldflags:
+      - -s -w -X github.com/Piszmog/wheel-of-decisions/internal/version.Value={{.Version}}
+    goos:
+      - linux
+      - windows
+      - darwin
+
+archives:
+  - formats: ['tar.gz']
+    # this name template makes the OS and Arch compatible with the results of `uname`.
+    name_template: >-
+      {{ .ProjectName }}_
+      {{- title .Os }}_
+      {{- if eq .Arch "amd64" }}x86_64
+      {{- else if eq .Arch "386" }}i386
+      {{- else }}{{ .Arch }}{{ end }}
+      {{- if .Arm }}v{{ .Arm }}{{ end }}
+    # use zip for windows archives
+    format_overrides:
+      - goos: windows
+        formats: ['zip']
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+
+release:
+  footer: >-
+
+    ---
+
+    Released by [GoReleaser](https://github.com/goreleaser/goreleaser).

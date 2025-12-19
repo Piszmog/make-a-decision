@@ -1,0 +1,604 @@
+package home
+
+import (
+	"fmt"
+	"strings"
+)
+
+type Option struct {
+	ID       string   `json:"id"`
+	Text     string   `json:"text"`
+	Weight   int64    `json:"weight"`
+	Duration *int64   `json:"duration,omitempty"`
+	Tags     []string `json:"tags,omitempty"`
+}
+
+templ ManageModal(options []Option, totalWeight int64) {
+	<div class="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50" onclick="if(event.target === this) { this.innerHTML = ''; }">
+		<div class="bg-white/10 backdrop-blur-md rounded-2xl border border-white/30 max-w-2xl w-full max-h-[80vh] overflow-hidden modal-animate" onclick="event.stopPropagation()">
+			<div class="p-6 border-b border-white/20">
+				<div class="flex items-center justify-between">
+					<div>
+						<h2 class="text-2xl font-bold text-white">Manage Options</h2>
+					</div>
+					<button
+						hx-get="/close-modal"
+						hx-target="#manage-modal"
+						hx-swap="innerHTML"
+						class="text-white/70 hover:text-white text-2xl transition-colors"
+					>
+						×
+					</button>
+				</div>
+			</div>
+			<div class="p-6 overflow-y-auto max-h-[50vh]">
+				<div class="space-y-3" id="options-list">
+					for _, opt := range options {
+						@OptionRow(opt, totalWeight)
+					}
+				</div>
+			</div>
+			<div class="p-6 border-t border-white/20">
+				<div class="flex gap-3 mb-4">
+					<form
+						hx-post="/api/options"
+						hx-target="#options-list"
+						hx-swap="innerHTML"
+						class="flex-1 flex flex-col gap-2"
+					>
+						<div class="flex gap-2">
+							<input
+								type="text"
+								name="text"
+								placeholder="Enter new activity..."
+								required
+								class="flex-1 px-4 py-2 rounded-lg border border-white/20 bg-white/10 text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-blue-500"
+							/>
+							<button
+								type="submit"
+								class="bg-green-500 hover:bg-green-600 text-white px-6 py-2 rounded-lg transition-colors"
+							>
+								Add
+							</button>
+						</div>
+						<input
+							type="text"
+							name="tags"
+							placeholder="Tags (comma-separated, max 5)..."
+							maxlength="100"
+							class="px-4 py-2 rounded-lg border border-white/20 bg-white/10 text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-purple-500 text-sm"
+						/>
+					</form>
+				</div>
+			</div>
+		</div>
+	</div>
+}
+
+templ OptionRow(opt Option, totalWeight int64) {
+	<div id={ "option-" + opt.ID } class={ "bg-white/10 backdrop-blur-sm rounded-lg p-4 border border-white/20 hover:bg-white/20 transition-all", getWeightBorderColor(opt.Weight) }>
+		<div class="flex items-center justify-between">
+			<div class="flex items-center gap-3 flex-wrap">
+				<span class="text-white font-medium">{ opt.Text }</span>
+				if len(opt.Tags) > 0 {
+					<div class="flex gap-1 flex-wrap">
+						for _, tag := range opt.Tags {
+							<span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs bg-purple-500/20 text-purple-200 border border-purple-500/30">
+								{ tag }
+							</span>
+						}
+					</div>
+				}
+				if opt.Duration != nil {
+					<span class="text-white/70 text-sm">
+						⏱ { formatDuration(opt.Duration) }
+					</span>
+				}
+			</div>
+			<div class="flex items-center gap-2">
+				<div class="text-blue-200 text-sm">
+					{ fmt.Sprintf("%.1f%%", calculateProbability(opt.Weight, totalWeight) * 100) }
+				</div>
+				<button
+					hx-delete={ "/api/options/" + opt.ID }
+					hx-target="#options-list"
+					hx-swap="innerHTML"
+					class="p-2 hover:bg-red-500/20 rounded-lg transition-colors text-red-300"
+				>
+					<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-6">
+						<path stroke-linecap="round" stroke-linejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0"></path>
+					</svg>
+				</button>
+				<button
+					hx-get={ "/expand-option/" + opt.ID }
+					hx-target={ "#option-" + opt.ID }
+					hx-swap="outerHTML"
+					class="p-2 hover:bg-white/20 rounded-lg transition-colors text-white/70 hover:text-white"
+				>
+					<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-6 chevron-icon">
+						<path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5"></path>
+					</svg>
+				</button>
+			</div>
+		</div>
+	</div>
+}
+
+templ OptionsList(options []Option) {
+	@OptionsListWithWeight(options, calculateTotalWeight(options))
+}
+
+templ OptionsListWithWeight(options []Option, totalWeight int64) {
+	<div id="options-list" class="space-y-3">
+		for _, opt := range options {
+			@OptionRow(opt, totalWeight)
+		}
+	</div>
+}
+
+templ ExpandedOptionRow(opt Option, totalWeight int64) {
+	<div id={ "option-" + opt.ID } class={ "bg-white/10 backdrop-blur-sm rounded-lg p-4 border border-white/20", getWeightBorderColor(opt.Weight) }>
+		<div class="flex items-center justify-between">
+			<div class="flex items-center gap-3 flex-wrap">
+				<span class="text-white font-medium">{ opt.Text }</span>
+				if len(opt.Tags) > 0 {
+					<div class="flex gap-1 flex-wrap">
+						for _, tag := range opt.Tags {
+							<span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs bg-purple-500/20 text-purple-200 border border-purple-500/30">
+								{ tag }
+							</span>
+						}
+					</div>
+				}
+				if opt.Duration != nil {
+					<span class="text-white/70 text-sm">
+						⏱ { formatDuration(opt.Duration) }
+					</span>
+				}
+			</div>
+			<div class="flex items-center gap-2">
+				<div class="text-blue-200 text-sm">
+					{ fmt.Sprintf("%.1f%%", calculateProbability(opt.Weight, totalWeight) * 100) }
+				</div>
+				<button
+					hx-delete={ "/api/options/" + opt.ID }
+					hx-target="#options-list"
+					hx-swap="innerHTML"
+					class="p-2 hover:bg-red-500/20 rounded-lg transition-colors text-red-300"
+				>
+					<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-6">
+						<path stroke-linecap="round" stroke-linejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0"></path>
+					</svg>
+				</button>
+				<button
+					hx-get={ "/collapse-option/" + opt.ID }
+					hx-target={ "#option-" + opt.ID }
+					hx-swap="outerHTML"
+					class="p-2 hover:bg-white/20 rounded-lg transition-colors text-white/70 hover:text-white"
+				>
+					<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-6 chevron-icon transform rotate-180">
+						<path stroke-linecap="round" stroke-linejoin="round" d="m4.5 15.75 7.5-7.5 7.5 7.5"></path>
+					</svg>
+				</button>
+			</div>
+		</div>
+		@ExpandedEditForm(opt)
+	</div>
+}
+
+templ ExpandedEditForm(opt Option) {
+	<form
+		hx-post="/api/options/update"
+		hx-target="#options-list"
+		hx-swap="innerHTML"
+		class="mt-4 p-4 bg-white/5 rounded-lg border-t border-white/10 space-y-4"
+	>
+		<input type="hidden" name="id" value={ opt.ID }/>
+		<input type="hidden" name="weight" id={ "weight-input-" + opt.ID } value={ fmt.Sprintf("%d", opt.Weight) }/>
+		@NameInputSection(opt)
+		@TagsInputSection(opt)
+		@DurationInputSection(opt)
+		@WeightInputSection(opt)
+		<div class="flex justify-end gap-2 pt-2">
+			<button
+				type="button"
+				hx-get={ "/collapse-option/" + opt.ID }
+				hx-target={ "#option-" + opt.ID }
+				hx-swap="outerHTML"
+				class="px-4 py-2 rounded-lg border border-white/20 text-white hover:bg-white/10 transition-colors flex items-center gap-2"
+			>
+				<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-4">
+					<path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12"></path>
+				</svg>
+				Cancel
+			</button>
+			<button
+				type="submit"
+				class="px-4 py-2 rounded-lg bg-green-500 hover:bg-green-600 text-white transition-colors flex items-center gap-2"
+			>
+				<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-4">
+					<path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5"></path>
+				</svg>
+				Save Changes
+			</button>
+		</div>
+	</form>
+}
+
+templ DurationInputSection(opt Option) {
+	<div class="space-y-3">
+		<div class="flex items-center justify-between">
+			<label class="text-white font-medium flex items-center gap-2">
+				⏱ Duration
+			</label>
+			<button
+				type="button"
+				data-hours-id={ "hours-" + opt.ID }
+				data-minutes-id={ "minutes-" + opt.ID }
+				class="text-red-400 hover:text-red-300 text-sm transition-colors flex items-center gap-1 clear-duration-btn"
+			>
+				<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-4">
+					<path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12"></path>
+				</svg>
+				Clear
+			</button>
+		</div>
+		<div class="flex items-center gap-3">
+			<input
+				type="number"
+				name="hours"
+				id={ "hours-" + opt.ID }
+				min="0"
+				max="24"
+				value={ fmt.Sprintf("%d", parseDurationHours(opt.Duration)) }
+				class="w-20 px-3 py-2 rounded-lg border border-white/20 bg-white/10 text-white text-center font-mono focus:outline-none focus:ring-2 focus:ring-blue-500"
+				autofocus
+			/>
+			<span class="text-white/70">hours</span>
+			<input
+				type="number"
+				name="minutes"
+				id={ "minutes-" + opt.ID }
+				min="0"
+				max="59"
+				value={ fmt.Sprintf("%d", parseDurationMinutes(opt.Duration)) }
+				class="w-20 px-3 py-2 rounded-lg border border-white/20 bg-white/10 text-white text-center font-mono focus:outline-none focus:ring-2 focus:ring-blue-500"
+			/>
+			<span class="text-white/70">minutes</span>
+		</div>
+		<div>
+			<div class="text-white/50 text-xs mb-2">Quick presets:</div>
+			<div class="grid grid-cols-7 gap-2 preset-duration-btns">
+				<button type="button" data-hours="0" data-minutes="5" data-hours-id={ "hours-" + opt.ID } data-minutes-id={ "minutes-" + opt.ID } class="px-3 py-2 rounded-md bg-white/10 hover:bg-blue-500/30 text-white text-sm transition-colors border border-white/20">5m</button>
+				<button type="button" data-hours="0" data-minutes="10" data-hours-id={ "hours-" + opt.ID } data-minutes-id={ "minutes-" + opt.ID } class="px-3 py-2 rounded-md bg-white/10 hover:bg-blue-500/30 text-white text-sm transition-colors border border-white/20">10m</button>
+				<button type="button" data-hours="0" data-minutes="15" data-hours-id={ "hours-" + opt.ID } data-minutes-id={ "minutes-" + opt.ID } class="px-3 py-2 rounded-md bg-white/10 hover:bg-blue-500/30 text-white text-sm transition-colors border border-white/20">15m</button>
+				<button type="button" data-hours="0" data-minutes="30" data-hours-id={ "hours-" + opt.ID } data-minutes-id={ "minutes-" + opt.ID } class="px-3 py-2 rounded-md bg-white/10 hover:bg-blue-500/30 text-white text-sm transition-colors border border-white/20">30m</button>
+				<button type="button" data-hours="1" data-minutes="0" data-hours-id={ "hours-" + opt.ID } data-minutes-id={ "minutes-" + opt.ID } class="px-3 py-2 rounded-md bg-white/10 hover:bg-blue-500/30 text-white text-sm transition-colors border border-white/20">1h</button>
+				<button type="button" data-hours="2" data-minutes="0" data-hours-id={ "hours-" + opt.ID } data-minutes-id={ "minutes-" + opt.ID } class="px-3 py-2 rounded-md bg-white/10 hover:bg-blue-500/30 text-white text-sm transition-colors border border-white/20">2h</button>
+				<button type="button" data-hours="3" data-minutes="0" data-hours-id={ "hours-" + opt.ID } data-minutes-id={ "minutes-" + opt.ID } class="px-3 py-2 rounded-md bg-white/10 hover:bg-blue-500/30 text-white text-sm transition-colors border border-white/20">3h</button>
+			</div>
+		</div>
+		<script>
+			document.querySelectorAll('.preset-duration-btns button').forEach(btn => {
+				btn.addEventListener('click', function() {
+					const hoursId = this.dataset.hoursId;
+					const minutesId = this.dataset.minutesId;
+					const hours = this.dataset.hours;
+					const minutes = this.dataset.minutes;
+					document.getElementById(hoursId).value = hours;
+					document.getElementById(minutesId).value = minutes;
+				});
+			});
+			document.querySelectorAll('.clear-duration-btn').forEach(btn => {
+				btn.addEventListener('click', function() {
+					const hoursId = this.dataset.hoursId;
+					const minutesId = this.dataset.minutesId;
+					document.getElementById(hoursId).value = 0;
+					document.getElementById(minutesId).value = 0;
+				});
+			});
+		</script>
+	</div>
+}
+
+templ WeightInputSection(opt Option) {
+	<div class="space-y-3">
+		<label class="text-white font-medium flex items-center gap-2">
+			⚖️ Weight (1-10)
+		</label>
+		<div class="flex items-center gap-3">
+			<button
+				type="button"
+				data-input-id={ "weight-input-" + opt.ID }
+				data-display-id={ "weight-display-" + opt.ID }
+				class="p-2 hover:bg-white/20 rounded-lg transition-colors text-white text-lg font-bold weight-decrease-btn"
+			>
+				−
+			</button>
+			<span id={ "weight-display-" + opt.ID } class="px-4 py-2 text-white font-mono text-lg min-w-[3rem] text-center">
+				{ fmt.Sprintf("%d", opt.Weight) }
+			</span>
+			<button
+				type="button"
+				data-input-id={ "weight-input-" + opt.ID }
+				data-display-id={ "weight-display-" + opt.ID }
+				class="p-2 hover:bg-white/20 rounded-lg transition-colors text-white text-lg font-bold weight-increase-btn"
+			>
+				+
+			</button>
+		</div>
+		<script>
+			document.querySelectorAll('.weight-decrease-btn').forEach(btn => {
+				btn.addEventListener('click', function() {
+					const input = document.getElementById(this.dataset.inputId);
+					const display = document.getElementById(this.dataset.displayId);
+					const value = Math.max(1, parseInt(input.value) - 1);
+					input.value = value;
+					display.textContent = value;
+				});
+			});
+			document.querySelectorAll('.weight-increase-btn').forEach(btn => {
+				btn.addEventListener('click', function() {
+					const input = document.getElementById(this.dataset.inputId);
+					const display = document.getElementById(this.dataset.displayId);
+					const value = Math.min(10, parseInt(input.value) + 1);
+					input.value = value;
+					display.textContent = value;
+				});
+			});
+		</script>
+	</div>
+}
+
+templ CloseModal() {
+	<div class="hidden"></div>
+}
+
+func calculateTotalWeight(options []Option) int64 {
+	var total int64
+	for _, opt := range options {
+		total += opt.Weight
+	}
+	return total
+}
+
+func calculateProbability(weight, total int64) float64 {
+	if total == 0 {
+		return 0.0
+	}
+	return float64(weight) / float64(total)
+}
+
+func getWeightClass(weight int64) string {
+	if weight <= 3 {
+		return "weight-low"
+	}
+	if weight <= 6 {
+		return "weight-medium"
+	}
+	return "weight-high"
+}
+
+func parseDurationHours(totalMinutes *int64) int64 {
+	if totalMinutes == nil {
+		return 0
+	}
+	return *totalMinutes / 60
+}
+
+func parseDurationMinutes(totalMinutes *int64) int64 {
+	if totalMinutes == nil {
+		return 0
+	}
+	return *totalMinutes % 60
+}
+
+func getWeightBorderColor(weight int64) string {
+	if weight <= 3 {
+		return "border-l-4 border-red-400 hover:border-red-500"
+	}
+	if weight <= 7 {
+		return "border-l-4 border-amber-400 hover:border-amber-500"
+	}
+	return "border-l-4 border-emerald-400 hover:border-emerald-500"
+}
+
+templ NameInputSection(opt Option) {
+	<div class="space-y-3">
+		<label class="text-white font-medium flex items-center gap-2">
+			✏️ Name
+		</label>
+		<input
+			type="text"
+			name="text"
+			value={ opt.Text }
+			placeholder="Enter activity name..."
+			required
+			class="w-full px-4 py-2 rounded-lg border border-white/20 bg-white/10 text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-blue-500"
+		/>
+	</div>
+}
+
+templ TagsInputSection(opt Option) {
+	<div class="space-y-3">
+		<div class="flex items-center justify-between">
+			<label class="text-white font-medium flex items-center gap-2">
+				🏷️ Tags
+			</label>
+			<span class="text-white/50 text-xs">Max 5 tags</span>
+		</div>
+		
+		<!-- Display existing tags as removable chips -->
+		<div id={ "tags-display-" + opt.ID } class="flex gap-2 flex-wrap min-h-[2.5rem] p-2 rounded-lg border border-white/20 bg-white/5">
+			for _, tag := range opt.Tags {
+				<span class="inline-flex items-center gap-1 px-3 py-1 rounded-full text-sm bg-purple-500/20 text-purple-200 border border-purple-500/30 tag-chip">
+					{ tag }
+					<button 
+						type="button"
+						data-tag={ tag }
+						data-option-id={ opt.ID }
+						class="remove-tag-btn hover:text-red-300 transition-colors"
+						aria-label={ "Remove tag " + tag }
+					>
+						<svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+						</svg>
+					</button>
+				</span>
+			}
+		</div>
+		
+		<!-- Input for new tags -->
+		<div class="flex gap-2" data-tags-container={ opt.ID }>
+			<input
+				type="text"
+				id={ "new-tag-input-" + opt.ID }
+				placeholder="Add a tag and press Enter..."
+				maxlength="20"
+				class="flex-1 px-3 py-2 rounded-lg border border-white/20 bg-white/10 text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-purple-500 text-sm"
+			/>
+			<button
+				type="button"
+				data-option-id={ opt.ID }
+				class="add-tag-btn px-4 py-2 rounded-lg bg-purple-500/20 hover:bg-purple-500/30 text-purple-200 border border-purple-500/30 transition-colors text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+			>
+				Add
+			</button>
+		</div>
+		
+		<!-- Hidden input to store all tags for form submission -->
+		<input type="hidden" id={ "tags-hidden-" + opt.ID } name="tags" value={ joinTags(opt.Tags) }/>
+		
+		<script type="text/javascript">
+			(function() {
+				// Find the container and get the option ID from it
+				const containers = document.querySelectorAll('[data-tags-container]');
+				const container = Array.from(containers).pop(); // Get the last one (most recently added)
+				if (!container) return;
+				
+				const optionId = container.getAttribute('data-tags-container');
+				const maxTags = 5;
+				
+				const input = document.getElementById('new-tag-input-' + optionId);
+				const addBtn = document.querySelector('.add-tag-btn[data-option-id="' + optionId + '"]');
+				const display = document.getElementById('tags-display-' + optionId);
+				
+				// Exit early if elements don't exist
+				if (!input || !addBtn || !display) {
+					return;
+				}
+				
+				function getTagCount() {
+					return display.querySelectorAll('.tag-chip').length;
+				}
+				
+				function updateAddButtonState() {
+					if (getTagCount() >= maxTags) {
+						addBtn.disabled = true;
+						input.disabled = true;
+						input.placeholder = 'Maximum tags reached';
+					} else {
+						addBtn.disabled = false;
+						input.disabled = false;
+						input.placeholder = 'Add a tag and press Enter...';
+					}
+				}
+				
+				function createTagChip(tagName) {
+					const chip = document.createElement('span');
+					chip.className = 'inline-flex items-center gap-1 px-3 py-1 rounded-full text-sm bg-purple-500/20 text-purple-200 border border-purple-500/30 tag-chip';
+					
+					const text = document.createTextNode(tagName);
+					chip.appendChild(text);
+					
+					const btn = document.createElement('button');
+					btn.type = 'button';
+					btn.className = 'remove-tag-btn hover:text-red-300 transition-colors';
+					btn.setAttribute('data-tag', tagName);
+					btn.setAttribute('data-option-id', optionId);
+					btn.setAttribute('aria-label', 'Remove tag ' + tagName);
+					btn.innerHTML = '<svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>';
+					
+					btn.addEventListener('click', function() {
+						chip.remove();
+						updateTagsHiddenInput();
+						updateAddButtonState();
+					});
+					
+					chip.appendChild(btn);
+					return chip;
+				}
+				
+				function updateTagsHiddenInput() {
+					const tags = Array.from(display.querySelectorAll('.tag-chip')).map(chip => {
+						return chip.firstChild.textContent.trim();
+					});
+					document.getElementById('tags-hidden-' + optionId).value = tags.join(',');
+				}
+				
+				function addTag() {
+					if (getTagCount() >= maxTags) {
+						return;
+					}
+					
+					const tagName = input.value.trim().toLowerCase();
+					
+					if (tagName === '') {
+						return;
+					}
+					
+					// Check for duplicates
+					const existingTags = Array.from(display.querySelectorAll('.tag-chip')).map(chip => 
+						chip.firstChild.textContent.trim().toLowerCase()
+					);
+					
+					if (existingTags.includes(tagName)) {
+						input.value = '';
+						return;
+					}
+					
+					// Create and add chip
+					const chip = createTagChip(tagName);
+					display.appendChild(chip);
+					
+					// Update hidden input
+					updateTagsHiddenInput();
+					
+					// Clear input
+					input.value = '';
+					
+					// Update button state
+					updateAddButtonState();
+				}
+				
+				// Add tag on button click
+				addBtn.addEventListener('click', addTag);
+				
+				// Add tag on Enter key
+				input.addEventListener('keypress', function(e) {
+					if (e.key === 'Enter') {
+						e.preventDefault();
+						addTag();
+					}
+				});
+				
+				// Initialize button state
+				updateAddButtonState();
+			})();
+		</script>
+	</div>
+}
+
+func joinTags(tags []string) string {
+	if len(tags) == 0 {
+		return ""
+	}
+	var result strings.Builder
+	for i, tag := range tags {
+		if i > 0 {
+			result.WriteString(",")
+		}
+		result.WriteString(tag)
+	}
+	return result.String()
+}
