@@ -4,22 +4,21 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"math/rand"
+	"math/rand/v2"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
 
+	"net/http"
+
 	"github.com/Piszmog/wheel-of-decisions/internal/components/core"
 	"github.com/Piszmog/wheel-of-decisions/internal/components/home"
 	"github.com/Piszmog/wheel-of-decisions/internal/db/queries"
-	"net/http"
 )
 
-// Use: Option type from home package
-type Option = home.Option
-
-// dbOptionToAppOption converts SQLC Option to app Option
-func (h *Handler) dbOptionToAppOption(ctx context.Context, dbOpt queries.Option) Option {
+// dbOptionToAppOption converts SQLC home.Option to app home.Option
+func (h *Handler) dbOptionToAppOption(ctx context.Context, dbOpt queries.Option) home.Option {
 	var duration *int64
 	if dbOpt.DurationMinutes != nil {
 		if dur, ok := dbOpt.DurationMinutes.(int64); ok {
@@ -40,8 +39,8 @@ func (h *Handler) dbOptionToAppOption(ctx context.Context, dbOpt queries.Option)
 		tags = []string{}
 	}
 
-	return Option{
-		ID:       fmt.Sprintf("%d", dbOpt.ID),
+	return home.Option{
+		ID:       strconv.FormatInt(dbOpt.ID, 10),
 		Text:     dbOpt.Name,
 		Weight:   weight,
 		Duration: duration,
@@ -130,33 +129,33 @@ func parseTagsFromForm(input string) []string {
 }
 
 // selectRandomOption implements weighted random selection from database with optional time constraint and tag filtering
-func (h *Handler) selectRandomOption(ctx context.Context, timeConstraintMinutes *int64, selectedTags []string) (Option, bool, error) {
+func (h *Handler) selectRandomOption(ctx context.Context, timeConstraintMinutes *int64, selectedTags []string) (home.Option, bool, error) {
 	options, err := h.Database.Queries().GetOptions(ctx)
 	if err != nil {
-		return Option{}, false, err
+		return home.Option{}, false, err
 	}
 
 	if len(options) == 0 {
-		return Option{ID: "", Text: "No options available", Weight: 1}, false, nil
+		return home.Option{ID: "", Text: "No options available", Weight: 1}, false, nil
 	}
 
 	// Filter options by time constraint and tags if provided
+	//nolint:prealloc
 	var eligibleOptions []queries.Option
 	for _, opt := range options {
 		// Time constraint filter
-		if timeConstraintMinutes != nil && *timeConstraintMinutes > 0 {
-			// Always include options without a duration (nil duration means flexible)
-			if opt.DurationMinutes != nil {
-				// Include if option duration fits within constraint
-				if dur, ok := opt.DurationMinutes.(int64); ok {
-					if dur > *timeConstraintMinutes {
-						continue // Skip if duration exceeds constraint
-					}
+		// Always include options without a duration (nil duration means flexible)
+		if timeConstraintMinutes != nil && *timeConstraintMinutes > 0 && opt.DurationMinutes != nil {
+			// Include if option duration fits within constraint
+			if dur, ok := opt.DurationMinutes.(int64); ok {
+				if dur > *timeConstraintMinutes {
+					continue // Skip if duration exceeds constraint
 				}
 			}
 		}
 
 		// Tag filter
+		//nolint:nestif
 		if len(selectedTags) > 0 {
 			// Fetch tags for this option
 			optionTags, err := h.fetchTagsForOption(ctx, opt.ID)
@@ -169,11 +168,9 @@ func (h *Handler) selectRandomOption(ctx context.Context, timeConstraintMinutes 
 			if len(optionTags) > 0 {
 				hasMatch := false
 				for _, selectedTag := range selectedTags {
-					for _, optionTag := range optionTags {
-						if selectedTag == optionTag {
-							hasMatch = true
-							break
-						}
+					if slices.Contains(optionTags, selectedTag) {
+						hasMatch = true
+						break
 					}
 					if hasMatch {
 						break
@@ -183,7 +180,7 @@ func (h *Handler) selectRandomOption(ctx context.Context, timeConstraintMinutes 
 					continue // Skip if no matching tags
 				}
 			}
-			// Options with no tags always pass (len(optionTags) == 0)
+			// home.Options with no tags always pass (len(optionTags) == 0)
 		}
 
 		eligibleOptions = append(eligibleOptions, opt)
@@ -191,7 +188,7 @@ func (h *Handler) selectRandomOption(ctx context.Context, timeConstraintMinutes 
 
 	// If no eligible options after filtering, return indicator
 	if len(eligibleOptions) == 0 {
-		return Option{}, true, nil // true indicates "no options available" due to constraint
+		return home.Option{}, true, nil // true indicates "no options available" due to constraint
 	}
 
 	// Weighted selection algorithm
@@ -208,7 +205,8 @@ func (h *Handler) selectRandomOption(ctx context.Context, timeConstraintMinutes 
 		return h.dbOptionToAppOption(ctx, eligibleOptions[0]), false, nil
 	}
 
-	r := rand.Int63n(totalWeight)
+	//nolint:gosec
+	r := rand.Int64N(totalWeight)
 	var currentWeight int64
 	for _, opt := range eligibleOptions {
 		weight := int64(1)
@@ -254,7 +252,7 @@ func (h *Handler) AddOption(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Create option in database
-	var durationParam interface{}
+	var durationParam any
 	if duration != nil {
 		durationParam = *duration
 	}
@@ -292,7 +290,7 @@ func (h *Handler) AddOption(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	appOptions := make([]Option, len(options))
+	appOptions := make([]home.Option, len(options))
 	for i, opt := range options {
 		appOptions[i] = h.dbOptionToAppOption(ctx, opt)
 	}
@@ -303,19 +301,6 @@ func (h *Handler) AddOption(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.html(ctx, w, http.StatusOK, home.OptionsListWithWeight(appOptions, totalWeight))
-}
-
-// formatDuration converts minutes to human-readable format
-func formatDuration(minutes *int64) string {
-	if minutes == nil {
-		return ""
-	}
-	hours := *minutes / 60
-	mins := *minutes % 60
-	if hours > 0 {
-		return fmt.Sprintf("%dh %dm", hours, mins)
-	}
-	return fmt.Sprintf("%dm", mins)
 }
 
 // Home handles the home page
@@ -427,7 +412,7 @@ func (h *Handler) GetOptions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	appOptions := make([]Option, len(options))
+	appOptions := make([]home.Option, len(options))
 	for i, opt := range options {
 		appOptions[i] = h.dbOptionToAppOption(ctx, opt)
 	}
@@ -487,7 +472,7 @@ func (h *Handler) UpdateOption(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	appOptions := make([]Option, len(updatedOptions))
+	appOptions := make([]home.Option, len(updatedOptions))
 	for i, opt := range updatedOptions {
 		appOptions[i] = h.dbOptionToAppOption(ctx, opt)
 	}
@@ -523,7 +508,7 @@ func (h *Handler) UpdateDuration(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Parse duration
-	var duration interface{}
+	var duration any
 	if durationStr != "" {
 		dur, err := strconv.ParseInt(durationStr, 10, 64)
 		if err != nil || dur < 0 || dur > 1440 {
@@ -557,7 +542,7 @@ func (h *Handler) UpdateDuration(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	appOptions := make([]Option, len(updatedOptions))
+	appOptions := make([]home.Option, len(updatedOptions))
 	for i, opt := range updatedOptions {
 		appOptions[i] = h.dbOptionToAppOption(ctx, opt)
 	}
@@ -577,7 +562,7 @@ func (h *Handler) IncreaseWeight(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	id := extractIDFromPath(r.URL.Path, "increase")
+	id := extractIDFromPath(r.URL.Path)
 	if id == "" {
 		http.Error(w, "Invalid option ID", http.StatusBadRequest)
 		return
@@ -602,10 +587,7 @@ func (h *Handler) IncreaseWeight(w http.ResponseWriter, r *http.Request) {
 	if dbOpt.Weight.Valid {
 		currentWeight = dbOpt.Weight.Int64
 	}
-	newWeight := currentWeight + 1
-	if newWeight > 10 {
-		newWeight = 10 // Cap at 10x
-	}
+	newWeight := min(currentWeight+1, 10)
 
 	updateParams := queries.UpdateWeightParams{
 		Weight: sql.NullInt64{Int64: newWeight, Valid: true},
@@ -627,7 +609,7 @@ func (h *Handler) IncreaseWeight(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	appOptions := make([]Option, len(updatedOptions))
+	appOptions := make([]home.Option, len(updatedOptions))
 	for i, opt := range updatedOptions {
 		appOptions[i] = h.dbOptionToAppOption(ctx, opt)
 	}
@@ -647,7 +629,7 @@ func (h *Handler) DecreaseWeight(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	id := extractIDFromPath(r.URL.Path, "decrease")
+	id := extractIDFromPath(r.URL.Path)
 	if id == "" {
 		http.Error(w, "Invalid option ID", http.StatusBadRequest)
 		return
@@ -672,10 +654,7 @@ func (h *Handler) DecreaseWeight(w http.ResponseWriter, r *http.Request) {
 	if dbOpt.Weight.Valid {
 		currentWeight = dbOpt.Weight.Int64
 	}
-	newWeight := currentWeight - 1
-	if newWeight < 1 {
-		newWeight = 1 // Minimum weight of 1
-	}
+	newWeight := max(currentWeight-1, 1)
 
 	updateParams := queries.UpdateWeightParams{
 		Weight: sql.NullInt64{Int64: newWeight, Valid: true},
@@ -697,7 +676,7 @@ func (h *Handler) DecreaseWeight(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	appOptions := make([]Option, len(updatedOptions))
+	appOptions := make([]home.Option, len(updatedOptions))
 	for i, opt := range updatedOptions {
 		appOptions[i] = h.dbOptionToAppOption(ctx, opt)
 	}
@@ -717,7 +696,7 @@ func (h *Handler) DeleteOption(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	id := extractIDFromPath(r.URL.Path, "delete")
+	id := extractIDFromPath(r.URL.Path)
 	if id == "" {
 		http.Error(w, "Invalid option ID", http.StatusBadRequest)
 		return
@@ -745,7 +724,7 @@ func (h *Handler) DeleteOption(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	appOptions := make([]Option, len(updatedOptions))
+	appOptions := make([]home.Option, len(updatedOptions))
 	for i, opt := range updatedOptions {
 		appOptions[i] = h.dbOptionToAppOption(ctx, opt)
 	}
@@ -923,7 +902,7 @@ func (h *Handler) UpdateOptionDetails(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Calculate total minutes
-	var duration interface{}
+	var duration any
 	totalMinutes := (hours * 60) + minutes
 	if totalMinutes > 0 {
 		duration = totalMinutes
@@ -973,7 +952,7 @@ func (h *Handler) UpdateOptionDetails(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	appOptions := make([]Option, len(options))
+	appOptions := make([]home.Option, len(options))
 	for i, opt := range options {
 		appOptions[i] = h.dbOptionToAppOption(ctx, opt)
 	}
@@ -997,7 +976,7 @@ func (h *Handler) CloseModal(w http.ResponseWriter, r *http.Request) {
 }
 
 // extractIDFromPath extracts option ID from URL path
-func extractIDFromPath(path, action string) string {
+func extractIDFromPath(path string) string {
 	// Path format: /api/weight/{action}/{id}, /api/options/{id}, /edit-duration/{id}, /cancel-duration-edit/{id}
 	parts := strings.Split(path, "/")
 

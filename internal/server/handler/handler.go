@@ -2,10 +2,11 @@ package handler
 
 import (
 	"context"
-	"github.com/a-h/templ"
-	"github.com/Piszmog/wheel-of-decisions/internal/db"
 	"log/slog"
 	"net/http"
+
+	"github.com/Piszmog/wheel-of-decisions/internal/db"
+	"github.com/a-h/templ"
 )
 
 // Handler handles requests.
@@ -14,6 +15,7 @@ type Handler struct {
 	Database db.Database
 }
 
+//nolint:unparam
 func (h *Handler) html(ctx context.Context, w http.ResponseWriter, status int, t templ.Component) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(status)
