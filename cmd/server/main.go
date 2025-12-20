@@ -2,10 +2,10 @@ package main
 
 import (
 	"errors"
-	"github.com/Piszmog/wheel-of-decisions/internal/db"
-	"github.com/Piszmog/wheel-of-decisions/internal/log"
-	"github.com/Piszmog/wheel-of-decisions/internal/server"
-	"github.com/Piszmog/wheel-of-decisions/internal/server/router"
+	"github.com/Piszmog/make-a-decision/internal/db"
+	"github.com/Piszmog/make-a-decision/internal/log"
+	"github.com/Piszmog/make-a-decision/internal/server"
+	"github.com/Piszmog/make-a-decision/internal/server/router"
 	"os"
 
 	"github.com/golang-migrate/migrate/v4"

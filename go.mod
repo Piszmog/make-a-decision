@@ -1,4 +1,4 @@
-module github.com/Piszmog/wheel-of-decisions
+module github.com/Piszmog/make-a-decision
 
 go 1.24.0
 

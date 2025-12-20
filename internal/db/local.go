@@ -2,7 +2,7 @@ package db
 
 import (
 	"database/sql"
-	"github.com/Piszmog/wheel-of-decisions/internal/db/queries"
+	"github.com/Piszmog/make-a-decision/internal/db/queries"
 	"log/slog"
 
 	_ "github.com/tursodatabase/libsql-client-go/libsql"

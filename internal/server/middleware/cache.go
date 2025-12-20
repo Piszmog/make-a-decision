@@ -1,7 +1,7 @@
 package middleware
 
 import (
-	"github.com/Piszmog/wheel-of-decisions/internal/version"
+	"github.com/Piszmog/make-a-decision/internal/version"
 	"net/http"
 )
 

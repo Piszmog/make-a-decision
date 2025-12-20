@@ -14,7 +14,7 @@ builds:
     env:
       - CGO_ENABLED=0
     ldflags:
-      - -s -w -X github.com/Piszmog/wheel-of-decisions/internal/version.Value={{.Version}}
+      - -s -w -X github.com/Piszmog/make-a-decision/internal/version.Value={{.Version}}
     goos:
       - linux
       - windows

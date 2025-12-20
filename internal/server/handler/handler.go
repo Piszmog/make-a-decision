@@ -5,7 +5,7 @@ import (
 	"log/slog"
 	"net/http"
 
-	"github.com/Piszmog/wheel-of-decisions/internal/db"
+	"github.com/Piszmog/make-a-decision/internal/db"
 	"github.com/a-h/templ"
 )
 

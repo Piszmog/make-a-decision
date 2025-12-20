@@ -12,9 +12,9 @@ import (
 
 	"net/http"
 
-	"github.com/Piszmog/wheel-of-decisions/internal/components/core"
-	"github.com/Piszmog/wheel-of-decisions/internal/components/home"
-	"github.com/Piszmog/wheel-of-decisions/internal/db/queries"
+	"github.com/Piszmog/make-a-decision/internal/components/core"
+	"github.com/Piszmog/make-a-decision/internal/components/home"
+	"github.com/Piszmog/make-a-decision/internal/db/queries"
 )
 
 // dbOptionToAppOption converts SQLC home.Option to app home.Option

@@ -6,7 +6,7 @@ import (
 	"embed"
 	"errors"
 	"fmt"
-	"github.com/Piszmog/wheel-of-decisions/internal/db/queries"
+	"github.com/Piszmog/make-a-decision/internal/db/queries"
 	"log/slog"
 
 	"github.com/golang-migrate/migrate/v4"

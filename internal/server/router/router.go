@@ -1,10 +1,10 @@
 package router
 
 import (
-	"github.com/Piszmog/wheel-of-decisions/internal/db"
-	"github.com/Piszmog/wheel-of-decisions/internal/dist"
-	"github.com/Piszmog/wheel-of-decisions/internal/server/handler"
-	"github.com/Piszmog/wheel-of-decisions/internal/server/middleware"
+	"github.com/Piszmog/make-a-decision/internal/db"
+	"github.com/Piszmog/make-a-decision/internal/dist"
+	"github.com/Piszmog/make-a-decision/internal/server/handler"
+	"github.com/Piszmog/make-a-decision/internal/server/middleware"
 	"log/slog"
 	"net/http"
 )
