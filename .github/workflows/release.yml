@@ -117,7 +117,7 @@ jobs:
       - uses: docker/metadata-action@v5
         id: meta
         with:
-          images: ghcr.io/piszmog/make-a-decision
+          images: ghcr.io/${{ github.repository }}
           tags: |
             type=raw,value=${{ needs.calculate-version.outputs.new_version }}
       - uses: docker/build-push-action@v5
