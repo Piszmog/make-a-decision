@@ -8,7 +8,10 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-const userIDContextKey = "user_id"
+// contextKey is a custom type for context keys to avoid collisions
+type contextKey string
+
+const userIDContextKey contextKey = "user_id"
 
 // CheckPasswordHash compares a bcrypt hashed password with plaintext
 func CheckPasswordHash(hash, password []byte) error {

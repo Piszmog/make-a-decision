@@ -20,6 +20,18 @@ const (
 	bcryptCost        = 12 // Recommended cost for bcrypt
 )
 
+// Validation errors
+var (
+	ErrEmailRequired        = errors.New("email is required")
+	ErrInvalidEmailFormat   = errors.New("invalid email format")
+	ErrPasswordRequired     = errors.New("password is required")
+	ErrPasswordTooShort     = errors.New("password must be at least 8 characters long")
+	ErrPasswordNeedsUpper   = errors.New("password must contain at least one uppercase letter")
+	ErrPasswordNeedsLower   = errors.New("password must contain at least one lowercase letter")
+	ErrPasswordNeedsNumber  = errors.New("password must contain at least one number")
+	ErrPasswordNeedsSpecial = errors.New("password must contain at least one special character")
+)
+
 // passwordRequirements validates password strength
 type passwordRequirements struct {
 	hasMinLength bool
@@ -124,18 +136,18 @@ func (h *Handler) renderSignupError(ctx context.Context, w http.ResponseWriter, 
 // validateEmail validates email format using Go's mail.ParseAddress
 func validateEmail(email string) error {
 	if email == "" {
-		return errors.New("Email is required")
+		return ErrEmailRequired
 	}
 
 	// Use Go's built-in email parser
 	addr, err := mail.ParseAddress(email)
 	if err != nil {
-		return errors.New("Invalid email format")
+		return ErrInvalidEmailFormat
 	}
 
 	// Additional validation: ensure it has @ and domain
 	if !strings.Contains(addr.Address, "@") || !strings.Contains(addr.Address, ".") {
-		return errors.New("Invalid email format")
+		return ErrInvalidEmailFormat
 	}
 
 	return nil
@@ -144,29 +156,29 @@ func validateEmail(email string) error {
 // validatePassword validates password strength
 func validatePassword(password string) error {
 	if password == "" {
-		return errors.New("Password is required")
+		return ErrPasswordRequired
 	}
 
 	reqs := checkPasswordRequirements(password)
 
 	if !reqs.hasMinLength {
-		return errors.New("Password must be at least 8 characters long")
+		return ErrPasswordTooShort
 	}
 
 	if !reqs.hasUpper {
-		return errors.New("Password must contain at least one uppercase letter")
+		return ErrPasswordNeedsUpper
 	}
 
 	if !reqs.hasLower {
-		return errors.New("Password must contain at least one lowercase letter")
+		return ErrPasswordNeedsLower
 	}
 
 	if !reqs.hasNumber {
-		return errors.New("Password must contain at least one number")
+		return ErrPasswordNeedsNumber
 	}
 
 	if !reqs.hasSpecial {
-		return errors.New("Password must contain at least one special character")
+		return ErrPasswordNeedsSpecial
 	}
 
 	return nil

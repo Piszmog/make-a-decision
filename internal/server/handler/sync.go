@@ -55,14 +55,8 @@ func (h *Handler) SyncLocalOptions(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
-		// Clamp weight to valid range
-		weight := opt.Weight
-		if weight < 1 {
-			weight = 1
-		}
-		if weight > 10 {
-			weight = 10
-		}
+		// Clamp weight to valid range (1-10)
+		weight := max(1, min(opt.Weight, 10))
 
 		// Validate duration
 		var durationParam any
@@ -108,9 +102,11 @@ func (h *Handler) SyncLocalOptions(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(SyncResponse{
+	if err := json.NewEncoder(w).Encode(SyncResponse{
 		Success: true,
 		Synced:  syncedCount,
 		Message: "Options synced successfully",
-	})
+	}); err != nil {
+		h.Logger.Error("Failed to encode sync response", "error", err)
+	}
 }
