@@ -204,6 +204,48 @@ func beforeEach(t *testing.T, contextOptions ...playwright.BrowserNewContextOpti
 		opt = contextOptions[0]
 	}
 	context, page = newBrowserContextAndPage(t, opt)
+
+	// Authenticate before each test
+	if err := signIn(t, page); err != nil {
+		t.Fatalf("failed to sign in: %v", err)
+	}
+}
+
+// signIn handles user authentication
+func signIn(t *testing.T, p playwright.Page) error {
+	t.Helper()
+
+	// Navigate to signin page
+	if _, err := p.Goto(getFullPath("/signin")); err != nil {
+		return fmt.Errorf("failed to navigate to signin: %w", err)
+	}
+
+	// Fill in credentials (matches seed.sql test user)
+	if err := p.Locator("input[name='email']").Fill("test@example.com"); err != nil {
+		return fmt.Errorf("failed to fill email: %w", err)
+	}
+
+	if err := p.Locator("input[name='password']").Fill("password123"); err != nil {
+		return fmt.Errorf("failed to fill password: %w", err)
+	}
+
+	// Submit form
+	if err := p.Locator("button[type='submit']").Click(); err != nil {
+		return fmt.Errorf("failed to click submit: %w", err)
+	}
+
+	// Wait for the home page to load by checking for a specific element
+	// HTMX performs a client-side redirect, so we need to wait for the page content to change
+	homeHeading := p.GetByText("Can't decide what to do?")
+	if err := homeHeading.WaitFor(playwright.LocatorWaitForOptions{
+		State:   playwright.WaitForSelectorStateVisible,
+		Timeout: playwright.Float(10000),
+	}); err != nil {
+		currentURL := p.URL()
+		return fmt.Errorf("failed to wait for home page (current URL: %s): %w", currentURL, err)
+	}
+
+	return nil
 }
 
 func getBrowserName() string {

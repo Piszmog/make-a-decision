@@ -32,3 +32,18 @@ func (l *LoggingMiddleware) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		slog.Duration("duration", time.Since(start)),
 	)
 }
+
+// Middleware returns a middleware function that can be used with Chain.
+func (l *LoggingMiddleware) Middleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+		next.ServeHTTP(w, r)
+		l.logger.Debug(
+			"Handled request",
+			slog.String("method", r.Method),
+			slog.String("path", r.URL.Path),
+			slog.String("remote", r.RemoteAddr),
+			slog.Duration("duration", time.Since(start)),
+		)
+	})
+}

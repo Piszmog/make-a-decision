@@ -15,10 +15,11 @@ import (
 	"github.com/Piszmog/make-a-decision/internal/components/core"
 	"github.com/Piszmog/make-a-decision/internal/components/home"
 	"github.com/Piszmog/make-a-decision/internal/db/queries"
+	"github.com/Piszmog/make-a-decision/internal/server/utils"
 )
 
 // dbOptionToAppOption converts SQLC home.Option to app home.Option
-func (h *Handler) dbOptionToAppOption(ctx context.Context, dbOpt queries.Option) home.Option {
+func (h *Handler) dbOptionToAppOption(ctx context.Context, dbOpt queries.Option, userID int64) home.Option {
 	var duration *int64
 	if dbOpt.DurationMinutes != nil {
 		if dur, ok := dbOpt.DurationMinutes.(int64); ok {
@@ -32,7 +33,7 @@ func (h *Handler) dbOptionToAppOption(ctx context.Context, dbOpt queries.Option)
 	}
 
 	// Fetch tags for this option
-	tags, err := h.fetchTagsForOption(ctx, dbOpt.ID)
+	tags, err := h.fetchTagsForOption(ctx, dbOpt.ID, userID)
 	if err != nil {
 		// Log error but continue - tags are optional
 		h.Logger.Warn("Failed to fetch tags for option", "option_id", dbOpt.ID, "error", err)
@@ -54,8 +55,11 @@ func stringToInt64(id string) (int64, error) {
 }
 
 // fetchTagsForOption retrieves all tags for a given option
-func (h *Handler) fetchTagsForOption(ctx context.Context, optionID int64) ([]string, error) {
-	tags, err := h.Database.Queries().GetTagsForOption(ctx, optionID)
+func (h *Handler) fetchTagsForOption(ctx context.Context, optionID, userID int64) ([]string, error) {
+	tags, err := h.Database.Queries().GetTagsForOption(ctx, queries.GetTagsForOptionParams{
+		OptionID: optionID,
+		UserID:   userID,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch tags: %w", err)
 	}
@@ -68,7 +72,7 @@ func (h *Handler) fetchTagsForOption(ctx context.Context, optionID int64) ([]str
 }
 
 // setTagsForOption replaces all tags for an option
-func (h *Handler) setTagsForOption(ctx context.Context, optionID int64, tagNames []string) error {
+func (h *Handler) setTagsForOption(ctx context.Context, optionID, userID int64, tagNames []string) error {
 	// Clear existing tags
 	if err := h.Database.Queries().ClearTagsForOption(ctx, optionID); err != nil {
 		return fmt.Errorf("failed to clear tags: %w", err)
@@ -82,7 +86,10 @@ func (h *Handler) setTagsForOption(ctx context.Context, optionID int64, tagNames
 		}
 
 		// Get or create tag
-		tag, err := h.Database.Queries().GetOrCreateTag(ctx, tagName)
+		tag, err := h.Database.Queries().GetOrCreateTag(ctx, queries.GetOrCreateTagParams{
+			LOWER:  tagName,
+			UserID: userID,
+		})
 		if err != nil {
 			return fmt.Errorf("failed to get/create tag %q: %w", tagName, err)
 		}
@@ -97,7 +104,7 @@ func (h *Handler) setTagsForOption(ctx context.Context, optionID int64, tagNames
 	}
 
 	// Clean up unused tags
-	if err := h.Database.Queries().DeleteUnusedTags(ctx); err != nil {
+	if err := h.Database.Queries().DeleteUnusedTags(ctx, userID); err != nil {
 		h.Logger.Warn("Failed to delete unused tags", "error", err)
 	}
 
@@ -129,8 +136,8 @@ func parseTagsFromForm(input string) []string {
 }
 
 // selectRandomOption implements weighted random selection from database with optional time constraint and tag filtering
-func (h *Handler) selectRandomOption(ctx context.Context, timeConstraintMinutes *int64, selectedTags []string) (home.Option, bool, error) {
-	options, err := h.Database.Queries().GetOptions(ctx)
+func (h *Handler) selectRandomOption(ctx context.Context, userID int64, timeConstraintMinutes *int64, selectedTags []string) (home.Option, bool, error) {
+	options, err := h.Database.Queries().GetOptions(ctx, userID)
 	if err != nil {
 		return home.Option{}, false, err
 	}
@@ -158,7 +165,7 @@ func (h *Handler) selectRandomOption(ctx context.Context, timeConstraintMinutes 
 		//nolint:nestif
 		if len(selectedTags) > 0 {
 			// Fetch tags for this option
-			optionTags, err := h.fetchTagsForOption(ctx, opt.ID)
+			optionTags, err := h.fetchTagsForOption(ctx, opt.ID, userID)
 			if err != nil {
 				h.Logger.Warn("Failed to fetch tags for filtering", "option_id", opt.ID, "error", err)
 				continue
@@ -202,7 +209,7 @@ func (h *Handler) selectRandomOption(ctx context.Context, timeConstraintMinutes 
 	}
 
 	if totalWeight == 0 {
-		return h.dbOptionToAppOption(ctx, eligibleOptions[0]), false, nil
+		return h.dbOptionToAppOption(ctx, eligibleOptions[0], userID), false, nil
 	}
 
 	//nolint:gosec
@@ -215,17 +222,22 @@ func (h *Handler) selectRandomOption(ctx context.Context, timeConstraintMinutes 
 		}
 		currentWeight += weight
 		if r < currentWeight {
-			return h.dbOptionToAppOption(ctx, opt), false, nil
+			return h.dbOptionToAppOption(ctx, opt, userID), false, nil
 		}
 	}
 
-	return h.dbOptionToAppOption(ctx, eligibleOptions[0]), false, nil
+	return h.dbOptionToAppOption(ctx, eligibleOptions[0], userID), false, nil
 }
 
 // AddOption handles adding a new option
 func (h *Handler) AddOption(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	userID, ok := utils.RequireAuth(w, r)
+	if !ok {
 		return
 	}
 
@@ -261,6 +273,7 @@ func (h *Handler) AddOption(w http.ResponseWriter, r *http.Request) {
 		Name:            text,
 		DurationMinutes: durationParam,
 		Weight:          sql.NullInt64{Int64: 1, Valid: true}, // Default weight
+		UserID:          userID,
 	}
 
 	createdOption, err := h.Database.Queries().CreateOption(ctx, createParams)
@@ -274,7 +287,7 @@ func (h *Handler) AddOption(w http.ResponseWriter, r *http.Request) {
 	tagsStr := r.FormValue("tags")
 	tags := parseTagsFromForm(tagsStr)
 	if len(tags) > 0 {
-		if err := h.setTagsForOption(ctx, createdOption.ID, tags); err != nil {
+		if err := h.setTagsForOption(ctx, createdOption.ID, userID, tags); err != nil {
 			h.Logger.Error("Failed to set tags", "error", err)
 			// Continue - tags are optional
 		}
@@ -283,7 +296,7 @@ func (h *Handler) AddOption(w http.ResponseWriter, r *http.Request) {
 	h.Logger.Info("Option created", "text", text, "duration", duration, "tags", tags)
 
 	// Return updated list to refresh display
-	options, err := h.Database.Queries().GetOptions(ctx)
+	options, err := h.Database.Queries().GetOptions(ctx, userID)
 	if err != nil {
 		h.Logger.Error("Failed to get options", "error", err)
 		http.Error(w, "Failed to get options", http.StatusInternalServerError)
@@ -292,7 +305,7 @@ func (h *Handler) AddOption(w http.ResponseWriter, r *http.Request) {
 
 	appOptions := make([]home.Option, len(options))
 	for i, opt := range options {
-		appOptions[i] = h.dbOptionToAppOption(ctx, opt)
+		appOptions[i] = h.dbOptionToAppOption(ctx, opt, userID)
 	}
 
 	var totalWeight int64
@@ -307,20 +320,36 @@ func (h *Handler) AddOption(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) Home(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	// Fetch all available tags for the filter
-	allTags, err := h.Database.Queries().GetAllTags(ctx)
-	if err != nil {
-		h.Logger.Warn("Failed to fetch tags for filter", "error", err)
-		allTags = []queries.Tag{} // Empty slice on error
+	// Get user email from context (set by UserContextMiddleware)
+	userEmail := utils.GetUserEmail(r)
+
+	// Fetch all available tags for the filter (only for authenticated users)
+	var allTags []queries.Tag
+	userID, ok := utils.GetUserID(r)
+	if ok {
+		tags, err := h.Database.Queries().GetAllTags(ctx, userID)
+		if err != nil {
+			h.Logger.Warn("Failed to fetch tags for filter", "error", err)
+			allTags = []queries.Tag{} // Empty slice on error
+		} else {
+			allTags = tags
+		}
+	} else {
+		allTags = []queries.Tag{} // No tags for anonymous users
 	}
 
-	h.html(ctx, w, http.StatusOK, core.HTML("Example Site", home.Page(allTags)))
+	h.html(ctx, w, http.StatusOK, core.HTML("Example Site", home.Page(allTags, userEmail), userEmail))
 }
 
 // RandomPicker handles the random activity picker request
 func (h *Handler) RandomPicker(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	userID, ok := utils.RequireAuth(w, r)
+	if !ok {
 		return
 	}
 
@@ -351,7 +380,7 @@ func (h *Handler) RandomPicker(w http.ResponseWriter, r *http.Request) {
 	// Add delay to let spinner show
 	time.Sleep(800 * time.Millisecond)
 
-	selected, noOptionsAvailable, err := h.selectRandomOption(r.Context(), timeConstraintMinutes, selectedTags)
+	selected, noOptionsAvailable, err := h.selectRandomOption(r.Context(), userID, timeConstraintMinutes, selectedTags)
 	if err != nil {
 		h.Logger.Error("Failed to select random option", "error", err)
 		http.Error(w, "Failed to select option", http.StatusInternalServerError)
@@ -370,7 +399,7 @@ func (h *Handler) RandomPicker(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Calculate probability
-	options, err := h.Database.Queries().GetOptions(r.Context())
+	options, err := h.Database.Queries().GetOptions(r.Context(), userID)
 	if err != nil {
 		h.Logger.Error("Failed to get options for probability", "error", err)
 		http.Error(w, "Failed to calculate probability", http.StatusInternalServerError)
@@ -404,8 +433,13 @@ func (h *Handler) GetOptions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	userID, ok := utils.RequireAuth(w, r)
+	if !ok {
+		return
+	}
+
 	ctx := r.Context()
-	options, err := h.Database.Queries().GetOptions(ctx)
+	options, err := h.Database.Queries().GetOptions(ctx, userID)
 	if err != nil {
 		h.Logger.Error("Failed to get options", "error", err)
 		http.Error(w, "Failed to get options", http.StatusInternalServerError)
@@ -414,7 +448,7 @@ func (h *Handler) GetOptions(w http.ResponseWriter, r *http.Request) {
 
 	appOptions := make([]home.Option, len(options))
 	for i, opt := range options {
-		appOptions[i] = h.dbOptionToAppOption(ctx, opt)
+		appOptions[i] = h.dbOptionToAppOption(ctx, opt, userID)
 	}
 
 	var totalWeight int64
@@ -427,6 +461,11 @@ func (h *Handler) GetOptions(w http.ResponseWriter, r *http.Request) {
 
 // UpdateOption handles updating an existing option
 func (h *Handler) UpdateOption(w http.ResponseWriter, r *http.Request) {
+	userID, ok := utils.RequireAuth(w, r)
+	if !ok {
+		return
+	}
+
 	ctx := r.Context()
 	text := r.FormValue("text")
 	idStr := r.FormValue("id")
@@ -443,7 +482,10 @@ func (h *Handler) UpdateOption(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Get current option to preserve other fields
-	dbOpt, err := h.Database.Queries().GetOption(ctx, id)
+	dbOpt, err := h.Database.Queries().GetOption(ctx, queries.GetOptionParams{
+		ID:     id,
+		UserID: userID,
+	})
 	if err != nil {
 		http.Error(w, "Option not found", http.StatusNotFound)
 		return
@@ -455,6 +497,7 @@ func (h *Handler) UpdateOption(w http.ResponseWriter, r *http.Request) {
 		DurationMinutes: dbOpt.DurationMinutes,
 		Weight:          dbOpt.Weight,
 		ID:              id,
+		UserID:          userID,
 	}
 
 	err = h.Database.Queries().UpdateOption(ctx, updateParams)
@@ -465,7 +508,7 @@ func (h *Handler) UpdateOption(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Return updated options list to refresh all probabilities
-	updatedOptions, err := h.Database.Queries().GetOptions(ctx)
+	updatedOptions, err := h.Database.Queries().GetOptions(ctx, userID)
 	if err != nil {
 		h.Logger.Error("Failed to get updated options", "error", err)
 		http.Error(w, "Failed to refresh options", http.StatusInternalServerError)
@@ -474,7 +517,7 @@ func (h *Handler) UpdateOption(w http.ResponseWriter, r *http.Request) {
 
 	appOptions := make([]home.Option, len(updatedOptions))
 	for i, opt := range updatedOptions {
-		appOptions[i] = h.dbOptionToAppOption(ctx, opt)
+		appOptions[i] = h.dbOptionToAppOption(ctx, opt, userID)
 	}
 
 	var totalWeight int64
@@ -489,6 +532,11 @@ func (h *Handler) UpdateOption(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) UpdateDuration(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	userID, ok := utils.RequireAuth(w, r)
+	if !ok {
 		return
 	}
 
@@ -522,6 +570,7 @@ func (h *Handler) UpdateDuration(w http.ResponseWriter, r *http.Request) {
 	updateParams := queries.UpdateDurationParams{
 		DurationMinutes: duration,
 		ID:              intID,
+		UserID:          userID,
 	}
 
 	err = h.Database.Queries().UpdateDuration(ctx, updateParams)
@@ -535,7 +584,7 @@ func (h *Handler) UpdateDuration(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("HX-Trigger", `{"success": "Duration updated successfully"}`)
 
 	// Return updated options list to refresh all probabilities
-	updatedOptions, err := h.Database.Queries().GetOptions(ctx)
+	updatedOptions, err := h.Database.Queries().GetOptions(ctx, userID)
 	if err != nil {
 		h.Logger.Error("Failed to get updated options", "error", err)
 		http.Error(w, "Failed to refresh options", http.StatusInternalServerError)
@@ -544,7 +593,7 @@ func (h *Handler) UpdateDuration(w http.ResponseWriter, r *http.Request) {
 
 	appOptions := make([]home.Option, len(updatedOptions))
 	for i, opt := range updatedOptions {
-		appOptions[i] = h.dbOptionToAppOption(ctx, opt)
+		appOptions[i] = h.dbOptionToAppOption(ctx, opt, userID)
 	}
 
 	var totalWeight int64
@@ -562,6 +611,11 @@ func (h *Handler) IncreaseWeight(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	userID, ok := utils.RequireAuth(w, r)
+	if !ok {
+		return
+	}
+
 	id := extractIDFromPath(r.URL.Path)
 	if id == "" {
 		http.Error(w, "Invalid option ID", http.StatusBadRequest)
@@ -576,7 +630,10 @@ func (h *Handler) IncreaseWeight(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Get current option
-	dbOpt, err := h.Database.Queries().GetOption(ctx, intID)
+	dbOpt, err := h.Database.Queries().GetOption(ctx, queries.GetOptionParams{
+		ID:     intID,
+		UserID: userID,
+	})
 	if err != nil {
 		http.Error(w, "Option not found", http.StatusNotFound)
 		return
@@ -592,6 +649,7 @@ func (h *Handler) IncreaseWeight(w http.ResponseWriter, r *http.Request) {
 	updateParams := queries.UpdateWeightParams{
 		Weight: sql.NullInt64{Int64: newWeight, Valid: true},
 		ID:     intID,
+		UserID: userID,
 	}
 
 	err = h.Database.Queries().UpdateWeight(ctx, updateParams)
@@ -602,7 +660,7 @@ func (h *Handler) IncreaseWeight(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Return updated options list to refresh all probabilities
-	updatedOptions, err := h.Database.Queries().GetOptions(ctx)
+	updatedOptions, err := h.Database.Queries().GetOptions(ctx, userID)
 	if err != nil {
 		h.Logger.Error("Failed to get updated options", "error", err)
 		http.Error(w, "Failed to refresh options", http.StatusInternalServerError)
@@ -611,7 +669,7 @@ func (h *Handler) IncreaseWeight(w http.ResponseWriter, r *http.Request) {
 
 	appOptions := make([]home.Option, len(updatedOptions))
 	for i, opt := range updatedOptions {
-		appOptions[i] = h.dbOptionToAppOption(ctx, opt)
+		appOptions[i] = h.dbOptionToAppOption(ctx, opt, userID)
 	}
 
 	var totalWeight int64
@@ -629,6 +687,11 @@ func (h *Handler) DecreaseWeight(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	userID, ok := utils.RequireAuth(w, r)
+	if !ok {
+		return
+	}
+
 	id := extractIDFromPath(r.URL.Path)
 	if id == "" {
 		http.Error(w, "Invalid option ID", http.StatusBadRequest)
@@ -643,7 +706,10 @@ func (h *Handler) DecreaseWeight(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Get current option
-	dbOpt, err := h.Database.Queries().GetOption(ctx, intID)
+	dbOpt, err := h.Database.Queries().GetOption(ctx, queries.GetOptionParams{
+		ID:     intID,
+		UserID: userID,
+	})
 	if err != nil {
 		http.Error(w, "Option not found", http.StatusNotFound)
 		return
@@ -659,6 +725,7 @@ func (h *Handler) DecreaseWeight(w http.ResponseWriter, r *http.Request) {
 	updateParams := queries.UpdateWeightParams{
 		Weight: sql.NullInt64{Int64: newWeight, Valid: true},
 		ID:     intID,
+		UserID: userID,
 	}
 
 	err = h.Database.Queries().UpdateWeight(ctx, updateParams)
@@ -669,7 +736,7 @@ func (h *Handler) DecreaseWeight(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Return updated options list to refresh all probabilities
-	updatedOptions, err := h.Database.Queries().GetOptions(ctx)
+	updatedOptions, err := h.Database.Queries().GetOptions(ctx, userID)
 	if err != nil {
 		h.Logger.Error("Failed to get updated options", "error", err)
 		http.Error(w, "Failed to refresh options", http.StatusInternalServerError)
@@ -678,7 +745,7 @@ func (h *Handler) DecreaseWeight(w http.ResponseWriter, r *http.Request) {
 
 	appOptions := make([]home.Option, len(updatedOptions))
 	for i, opt := range updatedOptions {
-		appOptions[i] = h.dbOptionToAppOption(ctx, opt)
+		appOptions[i] = h.dbOptionToAppOption(ctx, opt, userID)
 	}
 
 	var totalWeight int64
@@ -696,6 +763,11 @@ func (h *Handler) DeleteOption(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	userID, ok := utils.RequireAuth(w, r)
+	if !ok {
+		return
+	}
+
 	id := extractIDFromPath(r.URL.Path)
 	if id == "" {
 		http.Error(w, "Invalid option ID", http.StatusBadRequest)
@@ -709,7 +781,10 @@ func (h *Handler) DeleteOption(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err = h.Database.Queries().DeleteOption(ctx, intID)
+	err = h.Database.Queries().DeleteOption(ctx, queries.DeleteOptionParams{
+		ID:     intID,
+		UserID: userID,
+	})
 	if err != nil {
 		h.Logger.Error("Failed to delete option", "error", err)
 		http.Error(w, "Failed to delete option", http.StatusInternalServerError)
@@ -717,7 +792,7 @@ func (h *Handler) DeleteOption(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Return updated options list to refresh all probabilities
-	updatedOptions, err := h.Database.Queries().GetOptions(ctx)
+	updatedOptions, err := h.Database.Queries().GetOptions(ctx, userID)
 	if err != nil {
 		h.Logger.Error("Failed to get updated options", "error", err)
 		http.Error(w, "Failed to refresh options", http.StatusInternalServerError)
@@ -726,7 +801,7 @@ func (h *Handler) DeleteOption(w http.ResponseWriter, r *http.Request) {
 
 	appOptions := make([]home.Option, len(updatedOptions))
 	for i, opt := range updatedOptions {
-		appOptions[i] = h.dbOptionToAppOption(ctx, opt)
+		appOptions[i] = h.dbOptionToAppOption(ctx, opt, userID)
 	}
 
 	var totalWeight int64
@@ -741,6 +816,11 @@ func (h *Handler) DeleteOption(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) ExpandOption(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	userID, ok := utils.RequireAuth(w, r)
+	if !ok {
 		return
 	}
 
@@ -760,14 +840,17 @@ func (h *Handler) ExpandOption(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Get the specific option
-	dbOpt, err := h.Database.Queries().GetOption(ctx, intID)
+	dbOpt, err := h.Database.Queries().GetOption(ctx, queries.GetOptionParams{
+		ID:     intID,
+		UserID: userID,
+	})
 	if err != nil {
 		http.Error(w, "Option not found", http.StatusNotFound)
 		return
 	}
 
 	// Get all options to calculate total weight
-	options, err := h.Database.Queries().GetOptions(ctx)
+	options, err := h.Database.Queries().GetOptions(ctx, userID)
 	if err != nil {
 		h.Logger.Error("Failed to get options", "error", err)
 		http.Error(w, "Failed to get options", http.StatusInternalServerError)
@@ -783,7 +866,7 @@ func (h *Handler) ExpandOption(w http.ResponseWriter, r *http.Request) {
 		totalWeight += weight
 	}
 
-	appOption := h.dbOptionToAppOption(ctx, dbOpt)
+	appOption := h.dbOptionToAppOption(ctx, dbOpt, userID)
 	h.html(ctx, w, http.StatusOK, home.ExpandedOptionRow(appOption, totalWeight))
 }
 
@@ -791,6 +874,11 @@ func (h *Handler) ExpandOption(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) CollapseOption(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	userID, ok := utils.RequireAuth(w, r)
+	if !ok {
 		return
 	}
 
@@ -810,14 +898,17 @@ func (h *Handler) CollapseOption(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Get the specific option
-	dbOpt, err := h.Database.Queries().GetOption(ctx, intID)
+	dbOpt, err := h.Database.Queries().GetOption(ctx, queries.GetOptionParams{
+		ID:     intID,
+		UserID: userID,
+	})
 	if err != nil {
 		http.Error(w, "Option not found", http.StatusNotFound)
 		return
 	}
 
 	// Get all options to calculate total weight
-	options, err := h.Database.Queries().GetOptions(ctx)
+	options, err := h.Database.Queries().GetOptions(ctx, userID)
 	if err != nil {
 		h.Logger.Error("Failed to get options", "error", err)
 		http.Error(w, "Failed to get options", http.StatusInternalServerError)
@@ -833,7 +924,7 @@ func (h *Handler) CollapseOption(w http.ResponseWriter, r *http.Request) {
 		totalWeight += weight
 	}
 
-	appOption := h.dbOptionToAppOption(ctx, dbOpt)
+	appOption := h.dbOptionToAppOption(ctx, dbOpt, userID)
 	h.html(ctx, w, http.StatusOK, home.OptionRow(appOption, totalWeight))
 }
 
@@ -841,6 +932,11 @@ func (h *Handler) CollapseOption(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) UpdateOptionDetails(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	userID, ok := utils.RequireAuth(w, r)
+	if !ok {
 		return
 	}
 
@@ -911,7 +1007,10 @@ func (h *Handler) UpdateOptionDetails(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Get current option to preserve other fields
-	dbOpt, err := h.Database.Queries().GetOption(ctx, id)
+	dbOpt, err := h.Database.Queries().GetOption(ctx, queries.GetOptionParams{
+		ID:     id,
+		UserID: userID,
+	})
 	if err != nil {
 		http.Error(w, "Option not found", http.StatusNotFound)
 		return
@@ -924,6 +1023,7 @@ func (h *Handler) UpdateOptionDetails(w http.ResponseWriter, r *http.Request) {
 		DurationMinutes: duration,
 		Weight:          sql.NullInt64{Int64: weight, Valid: true},
 		ID:              id,
+		UserID:          userID,
 	}
 
 	err = h.Database.Queries().UpdateOption(ctx, updateParams)
@@ -936,7 +1036,7 @@ func (h *Handler) UpdateOptionDetails(w http.ResponseWriter, r *http.Request) {
 	// Parse and set tags
 	tagsStr := r.FormValue("tags")
 	tags := parseTagsFromForm(tagsStr)
-	if err := h.setTagsForOption(ctx, id, tags); err != nil {
+	if err := h.setTagsForOption(ctx, id, userID, tags); err != nil {
 		h.Logger.Error("Failed to update tags", "error", err)
 		http.Error(w, "Failed to update tags", http.StatusInternalServerError)
 		return
@@ -945,7 +1045,7 @@ func (h *Handler) UpdateOptionDetails(w http.ResponseWriter, r *http.Request) {
 	h.Logger.Info("Option updated", "id", id, "name", textStr, "duration", totalMinutes, "weight", weight, "tags", tags)
 
 	// Return full options list to refresh all probabilities
-	options, err := h.Database.Queries().GetOptions(ctx)
+	options, err := h.Database.Queries().GetOptions(ctx, userID)
 	if err != nil {
 		h.Logger.Error("Failed to get options", "error", err)
 		http.Error(w, "Failed to refresh options", http.StatusInternalServerError)
@@ -954,7 +1054,7 @@ func (h *Handler) UpdateOptionDetails(w http.ResponseWriter, r *http.Request) {
 
 	appOptions := make([]home.Option, len(options))
 	for i, opt := range options {
-		appOptions[i] = h.dbOptionToAppOption(ctx, opt)
+		appOptions[i] = h.dbOptionToAppOption(ctx, opt, userID)
 	}
 
 	var totalWeight int64

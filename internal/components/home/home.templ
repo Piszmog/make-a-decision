@@ -3,8 +3,31 @@ package home
 import "fmt"
 import "github.com/Piszmog/make-a-decision/internal/db/queries"
 
-templ Page(availableTags []queries.Tag) {
-	<div class="flex flex-col items-center justify-center min-h-screen px-4">
+templ UserStatus(userEmail string) {
+	if userEmail != "" {
+		<div class="absolute top-4 right-4 flex items-center gap-3">
+			<div class="text-white/80 text-sm">
+				Signed in as <span class="font-medium text-white">{ userEmail }</span>
+			</div>
+			<a href="/signout" class="text-white/70 hover:text-white text-sm underline">
+				Sign Out
+			</a>
+		</div>
+	} else {
+		<div class="absolute top-4 right-4 flex items-center gap-3">
+			<a href="/signin" class="text-white/70 hover:text-white text-sm underline">
+				Sign In
+			</a>
+			<a href="/signup" class="text-white/80 hover:text-white text-sm font-medium underline">
+				Sign Up
+			</a>
+		</div>
+	}
+}
+
+templ Page(availableTags []queries.Tag, userEmail string) {
+	<div class="flex flex-col items-center justify-center min-h-screen px-4 relative">
+		@UserStatus(userEmail)
 		<div class="text-center max-w-md mx-auto">
 			<div class="mb-8">
 				<div class="inline-flex items-center justify-center w-16 h-16 bg-white/20 backdrop-blur-sm rounded-full mb-6">

@@ -4,23 +4,30 @@
 DELETE FROM option_tags;
 DELETE FROM tags;
 DELETE FROM options;
+DELETE FROM sessions;
+DELETE FROM users;
+
+-- Create test user
+-- Password is 'password123' hashed with bcrypt cost 10
+INSERT INTO users (id, email, password_hash, created_at) VALUES 
+(1, 'test@example.com', '$2a$10$08Tf43MlgLm0FkwgpH3I.uo8wp92YOfhnNhZq2oaRVmrHT2T96alG', datetime('now'));
 
 -- Create options with various tag combinations for testing
-INSERT INTO options (name, bio, duration_minutes, weight, created_at) VALUES 
-('Video Games', NULL, 60, 5, datetime('now')),
-('Reading a Book', NULL, 30, 3, datetime('now')),
-('Going for a Run', NULL, 45, 2, datetime('now')),
-('Meditation', NULL, 15, 1, datetime('now')),
-('Watch Movie Marathon', NULL, 180, 1, datetime('now')),
-('Board Games', NULL, 90, 4, datetime('now'));
+INSERT INTO options (name, bio, duration_minutes, weight, user_id, created_at) VALUES 
+('Video Games', NULL, 60, 5, 1, datetime('now')),
+('Reading a Book', NULL, 30, 3, 1, datetime('now')),
+('Going for a Run', NULL, 45, 2, 1, datetime('now')),
+('Meditation', NULL, 15, 1, 1, datetime('now')),
+('Watch Movie Marathon', NULL, 180, 1, 1, datetime('now')),
+('Board Games', NULL, 90, 4, 1, datetime('now'));
 
 -- Create tags
-INSERT INTO tags (name, created_at) VALUES
-('indoor', datetime('now')),
-('outdoor', datetime('now')),
-('gaming', datetime('now')),
-('relaxing', datetime('now')),
-('active', datetime('now'));
+INSERT INTO tags (name, user_id, created_at) VALUES
+('indoor', 1, datetime('now')),
+('outdoor', 1, datetime('now')),
+('gaming', 1, datetime('now')),
+('relaxing', 1, datetime('now')),
+('active', 1, datetime('now'));
 
 -- Associate options with tags
 -- Option 1: Video Games - gaming, indoor
